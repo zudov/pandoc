@@ -691,8 +691,7 @@ getReference label (src, tit) = do
 inlineListToMarkdown :: WriterOptions -> [Inline] -> State WriterState Doc
 inlineListToMarkdown opts lst = do
   inlist <- gets stInList
-  return . cat =<< inlinesToMarkdown opts (if inlist then avoidBadWraps lst 
-                                                     else lst)
+  cat `fmap` go (if inlist then avoidBadWraps lst else lst)
   where avoidBadWraps [] = []
         avoidBadWraps (Space:Str ('>':cs):xs) =
           Str (' ':'>':cs) : avoidBadWraps xs
@@ -712,22 +711,20 @@ inlineListToMarkdown opts lst = do
                                      '.':_ -> True
                                      ')':_ -> True
                                      _     -> False
-
-inlinesToMarkdown :: WriterOptions -> [Inline] -> State WriterState [Doc]
-inlinesToMarkdown _ [] = return []
-inlinesToMarkdown opts (i:is) = case i of
-  (Link _ _) -> case is of
-      (Link _ _):_       -> recur False
-      Space:(Link _ _):_ -> recur False
-      _                  -> recur True
-  _ -> recur True
-  where recur shortcutable = do
-            shortcutable' <- gets stRefShortcutable
-            iMark <- withState (\s -> s { stRefShortcutable = shortcutable })
-                               (inlineToMarkdown opts i)
-            modify (\s -> s { stRefShortcutable = shortcutable' })
-            isMark <- inlinesToMarkdown opts is
-            return (iMark : isMark)
+        go [] = return []
+        go (i:is) = case i of
+            (Link _ _) -> case is of
+                (Link _ _):_       -> recur False
+                Space:(Link _ _):_ -> recur False
+                _                  -> recur True
+            _ -> recur True
+          where recur shortcutable = do
+                    shortcutable' <- gets stRefShortcutable
+                    iMark <- withState (\s -> s { stRefShortcutable = shortcutable })
+                                       (inlineToMarkdown opts i)
+                    modify (\s -> s { stRefShortcutable = shortcutable' })
+                    isMark <- go is
+                    return (iMark : isMark)
 
 isRight :: Either a b -> Bool
 isRight (Right _) = True
