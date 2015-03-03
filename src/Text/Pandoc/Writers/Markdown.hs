@@ -691,7 +691,7 @@ getReference label (src, tit) = do
 inlineListToMarkdown :: WriterOptions -> [Inline] -> State WriterState Doc
 inlineListToMarkdown opts lst = do
   inlist <- gets stInList
-  cat `fmap` go (if inlist then avoidBadWraps lst else lst)
+  go (if inlist then avoidBadWraps lst else lst)
   where avoidBadWraps [] = []
         avoidBadWraps (Space:Str ('>':cs):xs) =
           Str (' ':'>':cs) : avoidBadWraps xs
@@ -711,7 +711,7 @@ inlineListToMarkdown opts lst = do
                                      '.':_ -> True
                                      ')':_ -> True
                                      _     -> False
-        go [] = return []
+        go [] = return empty
         go (i:is) = case i of
             (Link _ _) -> case is of
                 (Link _ _):_       -> recur False
@@ -724,7 +724,7 @@ inlineListToMarkdown opts lst = do
                                        (inlineToMarkdown opts i)
                     modify (\s -> s { stRefShortcutable = shortcutable' })
                     isMark <- go is
-                    return (iMark : isMark)
+                    return (iMark <> isMark)
 
 isRight :: Either a b -> Bool
 isRight (Right _) = True
