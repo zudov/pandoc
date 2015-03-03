@@ -690,8 +690,7 @@ getReference label (src, tit) = do
 inlineListToMarkdown :: WriterOptions -> [Inline] -> State WriterState Doc
 inlineListToMarkdown opts lst = do
   inlist <- gets stInList
-  mapM (inlineToMarkdown opts)
-     (if inlist then avoidBadWraps lst else lst) >>= return . cat
+  (inlinesToMarkdown opts (if inlist then avoidBadWraps lst else lst)) >>= return . cat
   where avoidBadWraps [] = []
         avoidBadWraps (Space:Str ('>':cs):xs) =
           Str (' ':'>':cs) : avoidBadWraps xs
@@ -711,6 +710,51 @@ inlineListToMarkdown opts lst = do
                                      '.':_ -> True
                                      ')':_ -> True
                                      _     -> False
+
+inlinesToMarkdown :: WriterOptions -> [Inline] -> State WriterState [Doc]
+inlinesToMarkdown opts inlines = case inlines of
+  [] -> return []
+  i@(Link _ _):is -> case is of
+      (Link _ _):_       -> recur (inlineLinkToMarkdown False) i is
+      Space:(Link _ _):_ -> recur (inlineLinkToMarkdown False) i is
+      _                  -> recur (inlineLinkToMarkdown True) i is
+  i:is -> recur inlineToMarkdown i is
+  where recur f el els = liftM2 (:) (f opts el) (inlinesToMarkdown opts els)
+
+inlineLinkToMarkdown :: Bool -> WriterOptions -> Inline -> State WriterState Doc
+inlineLinkToMarkdown shortcutable opts (Link txt (src, tit)) = do
+  plain <- gets stPlain
+  linktext <- inlineListToMarkdown opts txt
+  let linktitle = if null tit
+                     then empty
+                     else text $ " \"" ++ tit ++ "\""
+  let srcSuffix = fromMaybe src (stripPrefix "mailto:" src)
+  let useAuto = isURI src &&
+                case txt of
+                      [Str s] | escapeURI s == srcSuffix -> True
+                      _                                  -> False
+  let useRefLinks = writerReferenceLinks opts && not useAuto
+  let useShortcutRefLinks = shortcutable &&
+                            isEnabled Ext_shortcut_reference_links opts
+  ref <- if useRefLinks then getReference txt (src, tit) else return []
+  reftext <- inlineListToMarkdown opts ref
+  return $ if useAuto
+              then if plain
+                      then text srcSuffix
+                      else "<" <> text srcSuffix <> ">"
+              else if useRefLinks
+                      then let first  = "[" <> linktext <> "]"
+                               second = if txt == ref
+                                           then if useShortcutRefLinks
+                                                   then ""
+                                                   else "[]"
+                                           else "[" <> reftext <> "]"
+                           in  first <> second
+                      else if plain
+                              then linktext
+                              else "[" <> linktext <> "](" <>
+                                   text src <> linktitle <> ")"
+inlineLinkToMarkdown _ opts i = inlineToMarkdown opts i
 
 isRight :: Either a b -> Bool
 isRight (Right _) = True
@@ -861,34 +905,7 @@ inlineToMarkdown opts (Cite (c:cs) lst)
            return $ pdoc <+> r
         modekey SuppressAuthor = "-"
         modekey _              = ""
-inlineToMarkdown opts (Link txt (src, tit)) = do
-  plain <- gets stPlain
-  linktext <- inlineListToMarkdown opts txt
-  let linktitle = if null tit
-                     then empty
-                     else text $ " \"" ++ tit ++ "\""
-  let srcSuffix = fromMaybe src (stripPrefix "mailto:" src)
-  let useAuto = isURI src &&
-                case txt of
-                      [Str s] | escapeURI s == srcSuffix -> True
-                      _                                  -> False
-  let useRefLinks = writerReferenceLinks opts && not useAuto
-  ref <- if useRefLinks then getReference txt (src, tit) else return []
-  reftext <- inlineListToMarkdown opts ref
-  return $ if useAuto
-              then if plain
-                      then text srcSuffix
-                      else "<" <> text srcSuffix <> ">"
-              else if useRefLinks
-                      then let first  = "[" <> linktext <> "]"
-                               second = if txt == ref
-                                           then "[]"
-                                           else "[" <> reftext <> "]"
-                           in  first <> second
-                      else if plain
-                              then linktext
-                              else "[" <> linktext <> "](" <>
-                                   text src <> linktitle <> ")"
+inlineToMarkdown opts i@(Link _ _) = inlineLinkToMarkdown True opts i
 inlineToMarkdown opts (Image alternate (source, tit)) = do
   plain <- gets stPlain
   let txt = if null alternate || alternate == [Str source]
