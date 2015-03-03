@@ -57,15 +57,14 @@ import qualified Data.Text as T
 
 type Notes = [[Block]]
 type Refs = [([Inline], Target)]
-data WriterState = WriterState { stNotes           :: Notes
-                               , stRefs            :: Refs
-                               , stRefShortcutable :: Bool
-                               , stInList          :: Bool
-                               , stIds             :: [String]
-                               , stPlain           :: Bool }
+data WriterState = WriterState { stNotes  :: Notes
+                               , stRefs   :: Refs
+                               , stInList :: Bool
+                               , stIds    :: [String]
+                               , stPlain  :: Bool }
 instance Default WriterState
-  where def = WriterState{ stNotes = [], stRefs = [], stRefShortcutable = True,
-                           stInList = False, stIds = [], stPlain = False }
+  where def = WriterState{ stNotes = [], stRefs = [], stInList = False,
+                           stIds = [], stPlain = False }
 
 -- | Convert Pandoc to Markdown.
 writeMarkdown :: WriterOptions -> Pandoc -> String
@@ -714,17 +713,15 @@ inlineListToMarkdown opts lst = do
         go [] = return empty
         go (i:is) = case i of
             (Link _ _) -> case is of
-                (Link _ _):_       -> recur False
-                Space:(Link _ _):_ -> recur False
-                _                  -> recur True
-            _ -> recur True
-          where recur shortcutable = do
-                    shortcutable' <- gets stRefShortcutable
-                    iMark <- withState (\s -> s { stRefShortcutable = shortcutable })
-                                       (inlineToMarkdown opts i)
-                    modify (\s -> s { stRefShortcutable = shortcutable' })
-                    isMark <- go is
-                    return (iMark <> isMark)
+                (Link _ _):_       -> noShortcut
+                Space:(Link _ _):_ -> noShortcut
+                _                  -> shortcut
+            _ -> shortcut
+          where recur opts' = liftM2 (<>) (inlineToMarkdown opts' i) (go is)
+                shortcut = recur opts
+                noShortcut = recur opts{ writerExtensions = Set.delete
+                                                Ext_shortcut_reference_links $
+                                                writerExtensions opts }
 
 isRight :: Either a b -> Bool
 isRight (Right _) = True
@@ -887,9 +884,7 @@ inlineToMarkdown opts (Link txt (src, tit)) = do
                       [Str s] | escapeURI s == srcSuffix -> True
                       _                                  -> False
   let useRefLinks = writerReferenceLinks opts && not useAuto
-  shortcutable <- gets stRefShortcutable
-  let useShortcutRefLinks = shortcutable &&
-                            isEnabled Ext_shortcut_reference_links opts
+  let useShortcutRefLinks = isEnabled Ext_shortcut_reference_links opts
   ref <- if useRefLinks then getReference txt (src, tit) else return []
   reftext <- inlineListToMarkdown opts ref
   return $ if useAuto
