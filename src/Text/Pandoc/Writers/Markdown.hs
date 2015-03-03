@@ -690,27 +690,8 @@ getReference label (src, tit) = do
 inlineListToMarkdown :: WriterOptions -> [Inline] -> State WriterState Doc
 inlineListToMarkdown opts lst = do
   inlist <- gets stInList
-  go (if inlist then avoidBadWraps lst else lst)
-  where avoidBadWraps [] = []
-        avoidBadWraps (Space:Str ('>':cs):xs) =
-          Str (' ':'>':cs) : avoidBadWraps xs
-        avoidBadWraps (Space:Str [c]:[])
-          | c `elem` "-*+" = Str [' ', c] : []
-        avoidBadWraps (Space:Str [c]:Space:xs)
-          | c `elem` "-*+" = Str [' ', c] : Space : avoidBadWraps xs
-        avoidBadWraps (Space:Str cs:Space:xs)
-          | isOrderedListMarker cs = Str (' ':cs) : Space : avoidBadWraps xs
-        avoidBadWraps (Space:Str cs:[])
-          | isOrderedListMarker cs = Str (' ':cs) : []
-        avoidBadWraps (x:xs) = x : avoidBadWraps xs
-        isOrderedListMarker xs = endsWithListPunct xs &&
-                      isRight (runParserT (anyOrderedListMarker >> eof)
-                               defaultParserState "" xs)
-        endsWithListPunct xs = case reverse xs of
-                                     '.':_ -> True
-                                     ')':_ -> True
-                                     _     -> False
-        go [] = return empty
+  go (if inlist then avoidBadWrapsInList lst else lst)
+  where go [] = return empty
         go (i:is) = case i of
             (Link _ _) -> case is of
                 (Link _ _):_       -> noShortcut
@@ -722,6 +703,25 @@ inlineListToMarkdown opts lst = do
                 noShortcut = recur opts{ writerExtensions = Set.delete
                                                 Ext_shortcut_reference_links $
                                                 writerExtensions opts }
+
+avoidBadWrapsInList :: [Inline] -> [Inline]
+avoidBadWrapsInList [] = []
+avoidBadWrapsInList (Space:Str ('>':cs):xs) =
+  Str (' ':'>':cs) : avoidBadWrapsInList xs
+avoidBadWrapsInList (Space:Str [c]:[])
+  | c `elem` "-*+" = Str [' ', c] : []
+avoidBadWrapsInList (Space:Str [c]:Space:xs)
+  | c `elem` "-*+" = Str [' ', c] : Space : avoidBadWrapsInList xs
+avoidBadWrapsInList (Space:Str cs:Space:xs)
+  | isOrderedListMarker cs = Str (' ':cs) : Space : avoidBadWrapsInList xs
+avoidBadWrapsInList (Space:Str cs:[])
+  | isOrderedListMarker cs = Str (' ':cs) : []
+avoidBadWrapsInList (x:xs) = x : avoidBadWrapsInList xs
+
+isOrderedListMarker :: String -> Bool
+isOrderedListMarker xs = (last xs `elem` ".)") &&
+              isRight (runParserT (anyOrderedListMarker >> eof)
+                       defaultParserState "" xs)
 
 isRight :: Either a b -> Bool
 isRight (Right _) = True
